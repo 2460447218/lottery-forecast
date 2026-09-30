@@ -1,12 +1,20 @@
 <script setup>
-import {onMounted, onUnmounted, ref} from 'vue';
+import {nextTick, onMounted, onUnmounted, ref} from 'vue';
 import BacktestView from './components/BacktestView.vue';
 import PredictionView from './components/PredictionView.vue';
 import HistoryView from './components/HistoryView.vue';
 import {fmt} from './utils.js';
 
 const draws = ref([]);
-const tab = ref('backtest');
+const tab = ref(location.hash === '#birthday' ? 'prediction' : 'backtest');
+const predictionView = ref(null);
+async function openBirthday() {
+  tab.value = 'prediction';
+  location.hash = 'birthday';
+  await nextTick();
+  predictionView.value?.openBirthday();
+}
+
 const error = ref('');
 const backtest = ref(null);
 let lifecycle;
@@ -49,8 +57,8 @@ onUnmounted(() => lifecycle?.abort());
     <nav class="tabs" aria-label="功能切换"><button v-for="item in [['backtest','回测实验'],['prediction','下一期参考'],['history','历史开奖']]" :key="item[0]" class="tab" :class="{active: tab === item[0]}" @click="tab = item[0]">{{ item[1] }}</button><span>每期开奖结果互相独立，参考号码不代表更高胜率</span></nav>
     <div v-if="error" id="notice" role="status" aria-live="polite">{{ error }}</div>
     <template v-if="draws.length">
-      <BacktestView v-show="tab === 'backtest'" ref="backtest" :draws="draws" @error="error = $event" />
-      <PredictionView v-show="tab === 'prediction'" :draws="draws" @error="error = $event" @use-prediction="usePrediction" />
+      <BacktestView v-show="tab === 'backtest'" ref="backtest" :draws="draws" @birthday="openBirthday" @error="error = $event" />
+      <PredictionView ref="predictionView" v-show="tab === 'prediction'" :draws="draws" @error="error = $event" @use-prediction="usePrediction" />
       <HistoryView v-if="tab === 'history'" :draws="draws" />
     </template>
     <footer><span>双色球研究室 · 官方开奖公告与历史数据</span><details><summary>数据与计算说明</summary><p>共 {{ fmt(draws.length) }} 期，截止 {{ draws.at(-1)?.issue ?? '—' }} 期。2013年起的开奖号码、日期及一二等奖金额已与中国福利彩票公开查询接口核对；2003—2012年的记录来自原始历史工作簿，尚未逐期核验。GitHub 仓库定时同步官方新开奖，官网延迟或接口故障时沿用上次成功的数据。规则回测保留前500期作初始历史，每期仅使用当时已开奖数据；手动选号属于事后固定号码回看。开奖号码按集合比较，不看顺序。同一注只兑付最高奖级。固定奖按常规金额折算，浮动奖使用表内公布金额（税前），不模拟新增中奖注对奖金分配的影响；计入有记录的福运奖，不计其他促销。历史回报不代表未来收益。</p><p>公平独立开奖下，单注一等奖概率为1/17,721,088。热门或遗漏只是历史统计特征。</p></details></footer>

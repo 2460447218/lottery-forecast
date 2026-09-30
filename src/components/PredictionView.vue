@@ -7,7 +7,7 @@ import {predictBirthdays} from '../birthday.mjs';
 
 const props = defineProps({draws: {type: Array, required: true}});
 const emit = defineEmits(['error', 'use-prediction']);
-const config = reactive({strategy: 'hot100', type: 'pool', redCount: 6, blueCount: 2, danCount: 4, tuoCount: 5, seed: 20260930});
+const config = reactive({strategy: location.hash === '#birthday' ? 'birthday' : 'hot100', type: 'pool', redCount: 6, blueCount: 2, danCount: 4, tuoCount: 5, seed: 20260930});
 const result = ref(null);
 const copied = ref(false);
 let nextBirthdayId = 2;
@@ -32,7 +32,9 @@ async function copyNumbers() {
   const text = result.value.config.type === 'dan' ? `胆码：${p.dan.map(pad).join(' ')}；拖码：${p.tuo.map(pad).join(' ')}；蓝球：${p.blue.map(pad).join(' ')}` : `红球：${p.red.map(pad).join(' ')}；蓝球：${p.blue.map(pad).join(' ')}`;
   try {await navigator.clipboard.writeText(text); copied.value = true;} catch {emit('error', '浏览器未允许复制，请直接选中号码复制。');}
 }
-onMounted(generate);
+function openBirthday() {config.strategy = 'birthday'; result.value = null;}
+defineExpose({openBirthday});
+onMounted(() => {if (config.strategy !== 'birthday') generate();});
 </script>
 
 <template>
