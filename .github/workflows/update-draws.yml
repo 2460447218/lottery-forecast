@@ -1,0 +1,40 @@
+name: Update SSQ draw history
+
+on:
+  schedule:
+    # 23:17 and 08:23 China Standard Time; the second run catches late notices.
+    - cron: '17 15 * * *'
+    - cron: '23 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-ssq-draws
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Fetch and validate official draw notices
+        run: node scripts/update-draws.mjs
+      - name: Verify calculations
+        run: node verify.mjs
+      - name: Commit new data
+        run: |
+          if git diff --quiet -- dist/draws.json; then
+            echo 'No new draw data.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add dist/draws.json
+          git commit -m 'Update official SSQ draw history'
+          git push
