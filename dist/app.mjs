@@ -1,8 +1,9 @@
 import {STRATEGIES,GRADES,TOTAL,betCount,betLabel,validateConfig,predict} from './engine.mjs';
+import {chartModel,chartSvg,chartSelection,chartIndexAt} from './chart.mjs';
 const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
 const fmt=n=>Number(n).toLocaleString('zh-CN'),money=n=>(n<0?'−':'')+'¥'+fmt(Math.abs(n)),pad=n=>String(n).padStart(2,'0');
 const escape=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let draws=[],result=null,worker=null,page=0,historyPage=0,historyQuery='',detailIssue=null,lastPrediction=null,running=false;
+let draws=[],result=null,worker=null,page=0,historyPage=0,historyQuery='',detailIssue=null,lastPrediction=null,running=false,chartMode='cumulative',activeChart=null;
 const manual={red:[],blue:[],dan:[],tuo:[]};
 const HELP={hot100:'按当时之前100期的出现次数排序；相同数据和设置会得到相同结果。',blend:'70%近100期频率 + 30%近30期频率；相同设置的结果固定。',hot30:'按当时之前30期的出现次数排序；相同设置的结果固定。',cold100:'选择当时之前100期出现次数较少的号码；相同设置的结果固定。',overdue:'选择截至当时连续未出现期数最长的号码；相同设置的结果固定。',hotcold:'按此前100期出现次数排序，冷热两端交替取号；红球和蓝球分别计算。',oddeven:'红球按奇、偶交替取号，各组内部按此前100期热度排序；蓝球按近100期热度排序。',zones:'红球按1—11、12—22、23—33三区轮流取号，各区内部按此前100期热度排序；蓝球按近100期热度排序。',random:'每一期都随机生成号码；勾选“每次运行重新随机”后，重复点击会看到不同的模拟结果。',manual:'固定这组号码回看历史，属于事后分析，不能当作事前预测成绩。'};
 function showError(message){$('#notice').textContent=message;$('#notice').hidden=false;}
@@ -46,29 +47,61 @@ function run(){
 }
 $('#backtest-form').addEventListener('submit',e=>{e.preventDefault();run().catch(()=>{});});
 $('#rerun-random').addEventListener('click',()=>{if($('#strategy').value!=='random')$('#strategy').value='random';$('#fresh-random').checked=true;updateConfig();run().catch(()=>{});});
-function chart(records){
- const W=800,H=260,l=70,r=12,t=20,b=36,max=Math.max(...records.map(x=>Math.max(x.cumulativeCost,x.cumulativePrize)),1),plotW=W-l-r,plotH=H-t-b;
- const sample=records.length<=260?records:records.filter((_,i)=>i===0||i===records.length-1||i%Math.ceil(records.length/250)===0);
- const index=new Map(records.map((x,i)=>[x.issue,i]));const x=i=>l+plotW*(records.length===1?1:i/(records.length-1));const y=v=>H-b-plotH*v/max;
- const path=key=>`M${l},${H-b} `+sample.map(v=>`L${x(index.get(v.issue)).toFixed(1)},${y(v[key]).toFixed(1)}`).join(' ');
- const grid=Array.from({length:5},(_,i)=>{const v=max*i/4;return `<line x1="${l}" x2="${W-r}" y1="${y(v)}" y2="${y(v)}" stroke="#e8edf0"/><text x="${l-10}" y="${y(v)+4}" text-anchor="end">${v>=10000?(v/10000).toFixed(1)+'万':Math.round(v)}</text>`;}).join('');
- return `<svg class="chart-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="累计成本${money(records.at(-1).cumulativeCost)}，累计已知奖金${money(records.at(-1).cumulativePrize)}"><defs><linearGradient id="prize-fill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#159085" stop-opacity=".14"/><stop offset="1" stop-color="#159085" stop-opacity="0"/></linearGradient></defs>${grid}<path d="${path('cumulativePrize')} L${W-r},${H-b} Z" fill="url(#prize-fill)"/><path d="${path('cumulativeCost')}" fill="none" stroke="#aab7c5" stroke-width="2.5" stroke-dasharray="6 5"/><path d="${path('cumulativePrize')}" fill="none" stroke="#128a80" stroke-width="2.6"/><text x="${l}" y="${H-7}">${records[0].issue}期</text><text x="${W-r}" y="${H-7}" text-anchor="end">${records.at(-1).issue}期</text></svg>`;
+function showChartRecord(index){
+ if(!activeChart)return;const i=Math.max(activeChart.start,Math.min(activeChart.end,index)),r=result.records[i];
+ $('#chart-selection').innerHTML=chartSelection(activeChart,i);
+ $('#chart-scrub').value=i;
+ $('#chart-readout').innerHTML=`<strong>${r.issue}期 <small>${r.date}</small></strong><span>投入 <b>${money(r.cost)}</b></span><span>奖金 <b>${r.unknown?'≥':''}${money(r.payout)}</b></span><span>当期净额 <b class="${r.net<0?'amount-negative':'amount-positive'}">${r.unknown?'≥':''}${money(r.net)}</b></span>${activeChart.mode==='cumulative'?`<span>累计投入 <b>${money(r.cumulativeCost)}</b></span><span>累计奖金 <b>${money(r.cumulativePrize)}</b></span>`:''}`;
+}
+function renderChart(){
+ activeChart=chartModel(result.records,chartMode);
+ $('#chart-title').textContent=chartMode==='recent'?'近30期逐期盈亏':'累计投入与奖金';
+ $('#chart-description').textContent=chartMode==='recent'?'绿色为当期盈利，红色为当期亏损；有缺失奖金时为已知净额。':'移动鼠标或拖动滑块，查看任一期的投入与奖金。';
+ $('#chart-legend').innerHTML=chartMode==='recent'?'<span><i class="profit-key"></i>盈利</span><span><i class="loss-key"></i>亏损</span>':'<span><i class="cost-key"></i>投入</span><span><i class="prize-key"></i>奖金</span>';
+ $$('#chart-mode button').forEach(b=>{const selected=b.dataset.chartMode===chartMode;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));});
+ $('#chart-visual').innerHTML=chartSvg(activeChart);
+ const scrub=$('#chart-scrub');scrub.min=activeChart.start;scrub.max=activeChart.end;scrub.value=activeChart.end;
+ showChartRecord(activeChart.end);
 }
 function renderResults(){
  const r=result,unknown=r.unknown>0,returnRate=r.prize/r.cost*100,best=r.counts.slice(1).findIndex(x=>x>0)+1,max=Math.max(...r.records.map(x=>x.payout));
  $('#result-title').textContent=`${STRATEGIES[r.config.strategy]} · ${betLabel(r.config)}`;$('#result-range').textContent=`${r.startIssue}—${r.endIssue}期 · ${fmt(r.periods)}期 · 每期${fmt(r.tickets)}注${r.config.strategy==='random'?` · 本次随机编号 ${r.config.seed}`:''}`;$('#rerun-random').hidden=r.config.strategy!=='random';
  $('#result-body').innerHTML=`${r.config.strategy==='random'?`<div class="notice-banner">这是第 ${r.config.seed} 号随机样本。点击“再随机一次”会重新生成每一期的模拟号码，用来观察结果波动；单次样本不代表真实长期概率。</div>`:''}${r.config.strategy==='manual'?'<div class="notice-banner">固定号码历史回看：这组号码是在现在选定的，历史命中不等于当时能提前预测。</div>':''}${unknown?'<div class="notice-banner">有浮动奖的奖金字段缺失。下方显示已知奖金下限，净额与返还比例并非完整结算。</div>':''}<div class="metrics"><article class="metric"><span>模拟总成本</span><strong>${money(r.cost)}</strong><small>每期 ${money(r.costPerPeriod)} × ${fmt(r.periods)}期</small></article><article class="metric"><span>${unknown?'已知奖金下限':'奖金合计'}</span><strong>${unknown?'≥':''}${money(r.prize)}</strong><small>含适用期间福运奖 · 税前</small></article><article class="metric ${r.net<0?'loss':'profit'}"><span>${unknown?'已知奖金减成本':'模拟净额'}</span><strong>${unknown?'≥':''}${money(r.net)}</strong><small>奖金 − 投入</small></article><article class="metric"><span>中奖期比例</span><strong>${(r.winningPeriods/r.periods*100).toFixed(1)}<em>%</em></strong><small>${fmt(r.winningPeriods)} / ${fmt(r.periods)}期有奖</small></article></div>
- <div class="card chart-card"><div class="card-heading"><div><h3>累计投入与奖金</h3><p>两条线之间，是中奖之外的成本。</p></div><div class="legend"><span><i class="cost-key"></i>投入</span><span><i class="prize-key"></i>奖金</span></div></div>${chart(r.records)}</div>
+ <div class="card chart-card"><div class="card-heading"><div><h3 id="chart-title">累计投入与奖金</h3><p id="chart-description">移动鼠标或拖动滑块，查看任一期的投入与奖金。</p></div><div class="chart-controls"><div class="chart-mode" id="chart-mode" role="group" aria-label="图表视图"><button type="button" data-chart-mode="cumulative" aria-pressed="true">累计走势</button><button type="button" data-chart-mode="recent" aria-pressed="false">近30期盈亏</button></div><div class="legend" id="chart-legend"><span><i class="cost-key"></i>投入</span><span><i class="prize-key"></i>奖金</span></div></div></div><div id="chart-visual"></div><label class="chart-scrub-label" for="chart-scrub">选择开奖期</label><input id="chart-scrub" class="chart-scrub" type="range" min="0" max="0" value="0"><div id="chart-readout" class="chart-readout" aria-live="polite"></div></div>
  <div class="result-bottom"><div class="card padded"><div class="card-heading"><div><h3>奖级分布</h3><p>展开后的中奖注数，同一期可中多注。</p></div></div>${r.counts.slice(1).map((v,i)=>`<div class="prize-bar"><span>${GRADES[i+1]}</span><div class="prize-track"><i style="width:${v?Math.max(2,Math.log1p(v)/Math.log1p(Math.max(...r.counts.slice(1),1))*100):0}%"></i></div><b>${fmt(v)}</b></div>`).join('')}</div><div class="card padded"><h3>不只看中奖次数</h3><ul class="summary-list"><li><span>${unknown?'已知奖金 / 投入':'奖金 / 投入'}</span><b>${unknown?'≥':''}${returnRate.toFixed(2)}%</b></li><li><span>奖金超过当期成本</span><b>${unknown?'至少':''}${fmt(r.profitablePeriods)}期</b></li><li><span>单期最高${unknown?'已知':''}奖金</span><b>${money(max)}</b></li><li><span>最高命中奖级</span><b>${best?GRADES[best]:'未中奖'}</b></li><li><span>同注数一等奖理论概率</span><b>约 ${fmt(Math.round(TOTAL/r.tickets))} 分之一</b></li></ul><p class="field-help">理论概率假设公平独立开奖。提高组合覆盖也会增加成本，历史表现不保证未来收益。</p></div></div>
- <div class="card table-card"><div class="card-heading"><div><h3>逐期明细</h3><p>展开查看当时选了什么，实际中了什么。</p></div><select id="result-filter" aria-label="筛选回测结果" style="width:auto"><option value="all">全部期数</option><option value="wins">有中奖</option><option value="profit">当期盈利</option></select></div><div id="detail-table"></div></div><p class="result-footnote">${r.config.strategy==='manual'?'手动回看使用固定号码。':'自动回测每期仅使用此前的数据；前500期作为初始历史。'} 金额按记录与规则折算，未经逐期官方核验。数据截止 ${draws.at(-1).date}。</p>`;
- $('#result-filter').addEventListener('change',()=>{page=0;detailIssue=null;renderResultTable();});renderResultTable();
+ <div class="card table-card"><div class="card-heading"><div><h3>逐期明细</h3><p>按期号、时间和结果筛选；展开查看当时所选号码。</p></div></div><div class="result-filters"><div><label for="result-search">期号 / 日期</label><input id="result-search" type="search" placeholder="搜索期号或日期"></div><div><label for="result-scope">时间范围</label><select id="result-scope"><option value="all">回测全部期数</option><option value="30">最近30期</option><option value="100">最近100期</option><option value="500">最近500期</option></select></div><div><label for="result-filter">结果</label><select id="result-filter"><option value="all">全部结果</option><option value="wins">有中奖</option><option value="none">未中奖</option><option value="profit">已知奖金高于成本</option></select></div><div><label for="result-grade">奖级</label><select id="result-grade"><option value="all">所有奖级</option>${GRADES.slice(1).map((name,i)=>`<option value="${i+1}">${name}</option>`).join('')}</select></div><button type="button" class="secondary" id="reset-result-filters">重置筛选</button></div><p id="result-filter-summary" class="filter-summary"></p><div id="detail-table"></div></div><p class="result-footnote">${r.config.strategy==='manual'?'手动回看使用固定号码。':'自动回测每期仅使用此前的数据；前500期作为初始历史。'} 金额按记录与规则折算，未经逐期官方核验。数据截止 ${draws.at(-1).date}。</p>`;
+ renderChart();renderResultTable();
 }
-function selectedRecords(){const filter=$('#result-filter')?.value??'all';return [...result.records].reverse().filter(r=>filter==='wins'?r.counts.slice(1).some(x=>x>0):filter==='profit'?r.payout>r.cost:true);}
+function selectedRecords(){
+ const filter=$('#result-filter')?.value??'all',grade=Number($('#result-grade')?.value??0),query=($('#result-search')?.value??'').trim(),scope=$('#result-scope')?.value??'all';
+ let records=[...result.records].reverse();if(scope!=='all')records=records.slice(0,Number(scope));
+ return records.filter(r=>{
+  const won=r.counts.slice(1).some(x=>x>0);
+  return (!query||r.issue.includes(query)||r.date.includes(query))&&(filter==='all'||filter==='wins'&&won||filter==='none'&&!won||filter==='profit'&&r.payout>r.cost)&&(!grade||r.counts[grade]>0);
+ });
+}
 function renderResultTable(){
  const rs=selectedRecords(),pages=Math.max(1,Math.ceil(rs.length/15));page=Math.min(page,pages-1);const shown=rs.slice(page*15,(page+1)*15);
+ $('#result-filter-summary').textContent=`找到 ${fmt(rs.length)} / ${fmt(result.records.length)} 期 · 按最新期号排序`;
  $('#detail-table').innerHTML=`<div class="table-wrap"><table><thead><tr><th>期号 / 日期</th><th>球池命中</th><th>最高奖级</th><th>当期奖金</th><th>当期净额</th><th></th></tr></thead><tbody>${shown.map(r=>{const best=r.counts.slice(1).findIndex(x=>x>0)+1;return `<tr><td><strong class="num">${r.issue}</strong><br><span class="field-help">${r.date}</span></td><td>${r.redHits}红 + ${r.blueHit}蓝${result.config.type==='dan'?`<br><span class="field-help">其中胆码 ${r.danHits}/${result.config.danCount}</span>`:''}</td><td>${best?`<span class="badge">${GRADES[best]}</span>`:'—'}</td><td class="num">${r.unknown?'≥':''}${money(r.payout)}</td><td class="num ${r.net<0?'amount-negative':'amount-positive'}">${r.unknown?'≥':''}${money(r.net)}</td><td><button class="tiny-button" data-detail="${r.issue}" aria-expanded="${detailIssue===r.issue}">${detailIssue===r.issue?'收起':'查看'}</button></td></tr>${detailIssue===r.issue?`<tr class="detail-expansion"><td colspan="6"><div class="detail-columns"><div><p>${result.config.type==='dan'?'当时所选胆码':'当时所选号码'} · 实心球表示命中</p>${balls(result.config.type==='dan'?r.pick.dan:r.pick.red,r.pick.blue,{red:r.actualRed,blue:r.actualBlue})}${result.config.type==='dan'?`<p>拖码</p>${balls(r.pick.tuo,[],{red:r.actualRed,blue:r.actualBlue})}`:''}</div><div><p>实际开奖</p>${balls(r.actualRed,[r.actualBlue])}<p>${r.counts.slice(1).map((n,i)=>n?`${GRADES[i+1]} ${fmt(n)}注`:'').filter(Boolean).join(' · ')||'该期未中奖'}</p>${r.unknown?'<p class="error-text">浮动奖奖金字段缺失，金额暂未完整计算。</p>':''}</div></div></td></tr>`:''}`;}).join('')||'<tr><td colspan="6" class="empty">没有符合条件的开奖期。</td></tr>'}</tbody></table></div><div class="pager"><span>共 ${fmt(rs.length)}期 · ${page+1} / ${pages}页</span><div class="pager-buttons"><button class="secondary" data-page="prev" ${page===0?'disabled':''}>上一页</button><button class="secondary" data-page="next" ${page>=pages-1?'disabled':''}>下一页</button></div></div>`;
 }
-$('#result-body').addEventListener('click',e=>{const detail=e.target.closest('[data-detail]');if(detail){detailIssue=detailIssue===detail.dataset.detail?null:detail.dataset.detail;renderResultTable();}const b=e.target.closest('[data-page]');if(b){page+=b.dataset.page==='next'?1:-1;detailIssue=null;renderResultTable();}});
+function refreshResultFilters(){page=0;detailIssue=null;renderResultTable();}
+$('#result-body').addEventListener('input',e=>{
+ if(e.target.id==='result-search')refreshResultFilters();
+ if(e.target.id==='chart-scrub')showChartRecord(Number(e.target.value));
+});
+$('#result-body').addEventListener('change',e=>{if(['result-scope','result-filter','result-grade'].includes(e.target.id))refreshResultFilters();});
+$('#result-body').addEventListener('pointermove',e=>{
+ if(!e.target.classList?.contains('chart-hit-area')||!activeChart)return;
+ const rect=e.target.getBoundingClientRect(),x=72+(e.clientX-rect.left)/rect.width*708;
+ showChartRecord(chartIndexAt(activeChart,x));
+});
+$('#result-body').addEventListener('click',e=>{
+ const mode=e.target.closest('[data-chart-mode]');if(mode){chartMode=mode.dataset.chartMode;renderChart();return;}
+ if(e.target.id==='reset-result-filters'){for(const id of ['result-search','result-scope','result-filter','result-grade'])$('#'+id).value=id==='result-search'?'':'all';refreshResultFilters();return;}
+ const detail=e.target.closest('[data-detail]');if(detail){detailIssue=detailIssue===detail.dataset.detail?null:detail.dataset.detail;renderResultTable();}
+ const b=e.target.closest('[data-page]');if(b){page+=b.dataset.page==='next'?1:-1;detailIssue=null;renderResultTable();}
+});
 function download(name,rows){const csv='\ufeff'+rows.map(row=>row.map(x=>'"'+String(x??'').replaceAll('"','""')+'"').join(',')).join('\r\n');const u=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),1000);}
 $('#export-results').addEventListener('click',()=>{if(!result)return;download(`双色球回测_${result.startIssue}-${result.endIssue}.csv`,[['规则',STRATEGIES[result.config.strategy],'买法',betLabel(result.config)],['期号','日期','所选红球','胆码','拖码','蓝球','实际红球','实际蓝球','投入','已知奖金','已知奖金减投入','缺失浮动奖金注数',...GRADES.slice(1)],...result.records.map(r=>[r.issue,r.date,r.pick.red.map(pad).join(' '),r.pick.dan.map(pad).join(' '),r.pick.tuo.map(pad).join(' '),r.pick.blue.map(pad).join(' '),r.actualRed.map(pad).join(' '),pad(r.actualBlue),r.cost,r.payout,r.net,r.unknown,...r.counts.slice(1)])]);});
 function renderPredictionShell(){

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {runBacktest,validateConfig,scoreDraw,grade,predict,choose,selectNumbers,numberStats} from './dist/engine.mjs';
+import {chartModel,chartSvg,chartSelection,chartIndexAt} from './dist/chart.mjs';
 const draws=JSON.parse(fs.readFileSync(new URL('./dist/draws.json',import.meta.url),'utf8'));
 const base={strategy:'hot100',type:'pool',redCount:6,blueCount:2,seed:20260930,periods:3010,end:draws.length};
 for(const [redCount,blueCount,hot,blend] of [[6,2,3450,3325],[7,1,18365,12980],[7,2,29690,23680],[6,16,23475,23760]]){
@@ -10,6 +11,12 @@ for(const [redCount,blueCount,hot,blend] of [[6,2,3450,3325],[7,1,18365,12980],[
 }
 const dan=runBacktest(draws,{...base,type:'dan',danCount:4,tuoCount:7,blueCount:1});assert.equal(dan.prize,5070110);assert.equal(dan.counts[1],1);assert.equal(dan.records.find(r=>r.counts[1]).issue,'07016');
 const recent=runBacktest(draws,{...base,periods:1000});assert.equal(recent.prize,1255);assert.equal(recent.winningPeriods,140);
+for(const mode of ['cumulative','recent']){
+ const model=chartModel(recent.records,mode),markup=chartSvg(model);
+ assert.equal(model.end,999);assert.equal(model.start,mode==='recent'?970:0);
+ assert.equal(chartIndexAt(model,72),model.start);assert.equal(chartIndexAt(model,780),model.end);
+ assert.ok(markup.includes('chart-selection'));assert.ok(chartSelection(model,model.start).includes('circle'));
+}
 const next=predict(draws,base);assert.deepEqual(next.pick.red,[13,14,22,24,25,30]);assert.deepEqual(next.pick.blue,[2,4]);
 const manual={red:draws.at(-1).red,blue:[draws.at(-1).blue]};const missing=runBacktest(draws,{...base,strategy:'manual',manual,blueCount:1,periods:1});assert.equal(missing.counts[1],1);assert.equal(missing.unknown,1);assert.equal(missing.prize,0);
 assert.throws(()=>validateConfig({...base,periods:3011},draws.length));assert.throws(()=>validateConfig({...base,blueCount:0},draws.length));assert.throws(()=>validateConfig({...base,strategy:'manual',manual:{red:[1,1,2,3,4,5],blue:[1,2]}},draws.length));assert.throws(()=>validateConfig({...base,type:'dan',danCount:4,tuoCount:2},draws.length));
