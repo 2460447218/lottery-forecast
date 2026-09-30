@@ -45,3 +45,24 @@ const zones=selectNumbers(draws,1500,{...base,strategy:'zones'}).red;assert.deep
 // Cutoff excludes the target and all later draws: changing them cannot change an earlier pick.
 const end=1700,r1=runBacktest(draws,{...base,end,periods:2});const altered=structuredClone(draws);altered[end-1].red=[1,2,3,4,5,6];altered[end-1].blue=1;assert.deepEqual(runBacktest(altered,{...base,end,periods:2}).records.at(-1).pick,r1.records.at(-1).pick);
 console.log('PASS: existing baselines and scoring, three new selection methods, balanced picks, and no-lookahead checks.');
+
+// Birthday combinations remain valid across full pools, leap days and duplicate inputs.
+const {birthdayPick, predictBirthdays} = await import('./src/birthday.mjs');
+const birthdays = ['1965-02-28', '2000-02-29', '1994-12-31'];
+const birthdayConfig = {type:'pool', redCount:6, blueCount:2};
+const birthdayResult = predictBirthdays(draws,birthdayConfig,birthdays);
+assert.equal(birthdayResult.birthday,true);
+assert.equal(birthdayResult.config.strategy,'manual');
+assert.equal(birthdayResult.pick.red.length,6);
+assert.equal(new Set(birthdayResult.pick.red).size,6);
+assert.deepEqual(birthdayPick(birthdays,birthdayConfig),birthdayPick([...birthdays].reverse(),birthdayConfig));
+assert.deepEqual(birthdayPick(birthdays,birthdayConfig),birthdayPick([...birthdays,birthdays[0]],birthdayConfig));
+const fullBirthday = birthdayPick(birthdays,{type:'pool',redCount:33,blueCount:16});
+assert.deepEqual(fullBirthday.red,Array.from({length:33},(_,i)=>i+1));
+assert.deepEqual(fullBirthday.blue,Array.from({length:16},(_,i)=>i+1));
+const birthdayDan = predictBirthdays(draws,{type:'dan',danCount:4,tuoCount:5,blueCount:2},birthdays);
+assert.equal(birthdayDan.pick.dan.length,4);
+assert.equal(birthdayDan.pick.tuo.length,5);
+assert.ok(!birthdayDan.pick.dan.some(n=>birthdayDan.pick.tuo.includes(n)));
+for (const dates of [[],[''],['2001-02-29'],['2000-13-01'],['2999-01-01']]) assert.throws(()=>predictBirthdays(draws,birthdayConfig,dates));
+console.log('PASS: birthday combinations, validation, duplicate dates, full pools and fixed-number backtest config.');
