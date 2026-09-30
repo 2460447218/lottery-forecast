@@ -26,15 +26,15 @@ jobs:
       - name: Fetch and validate official draw notices
         run: node scripts/update-draws.mjs
       - name: Verify calculations
-        run: node verify.mjs
+        run: npm ci && npm run build && npm test
       - name: Commit new data
         run: |
-          if git diff --quiet -- dist/draws.json; then
+          if git diff --quiet -- public/draws.json; then
             echo 'No new draw data.'
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add dist/draws.json
+          git add -A -- public/draws.json dist
           git commit -m 'Update official SSQ draw history'
           git push

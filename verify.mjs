@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {runBacktest,validateConfig,scoreDraw,grade,predict,choose,selectNumbers,numberStats} from './dist/engine.mjs';
-import {chartModel,chartSvg,chartSelection,chartIndexAt} from './dist/chart.mjs';
+import {runBacktest,validateConfig,scoreDraw,grade,predict,choose,selectNumbers,numberStats} from './src/engine.mjs';
+import {chartModel,chartSvg,chartSelection,chartIndexAt} from './src/chart.mjs';
 import {normalizeDraw,mergeDraws} from './scripts/update-draws.mjs';
-const draws=JSON.parse(fs.readFileSync(new URL('./dist/draws.json',import.meta.url),'utf8'));
+const draws=JSON.parse(fs.readFileSync(new URL('./public/draws.json',import.meta.url),'utf8'));
 const baselineEnd=draws.findIndex(r=>r.issue==='26113')+1;
 assert.equal(baselineEnd,3510);
 const baselineDraws=draws.slice(0,baselineEnd);

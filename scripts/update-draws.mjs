@@ -3,7 +3,7 @@ import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
-const dataFile=path.join(root,'dist','draws.json');
+const dataFile=path.join(root,'public','draws.json');
 const endpoint='https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice';
 const shanghai='https://appsh.swlc.net.cn/shfcoc_datachart/datachart/ssq/lskj/ls_award.html';
 
