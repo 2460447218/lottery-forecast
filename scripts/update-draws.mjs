@@ -5,6 +5,7 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const dataFile=path.join(root,'dist','draws.json');
 const endpoint='https://www.cwl.gov.cn/cwl_admin/front/cwlkj/search/kjxx/findDrawNotice';
+const shanghai='https://appsh.swlc.net.cn/shfcoc_datachart/datachart/ssq/lskj/ls_award.html';
 
 function amount(value,label){
  const raw=String(value??'').replaceAll(',','').trim();
@@ -39,7 +40,7 @@ export function mergeDraws(existing,officialRows){
    result.push(row);added++;continue;
   }
   overlap++;const old=result[index];
-  if(old.date!==row.date||old.blue!==row.blue||old.red.join(',')!==row.red.join(',')||old.special!==row.special)throw new Error(`第${row.issue}期与官方开奖号码不一致，已停止更新。`);
+  if(old.date!==row.date||old.blue!==row.blue||old.red.join(',')!==row.red.join(',')||(Object.hasOwn(raw,'fyjMoney')&&old.special!==row.special))throw new Error(`第${row.issue}期与官方开奖号码不一致，已停止更新。`);
   for(const field of ['first','second']){
    if(old[field]>0&&old[field]!==row[field])throw new Error(`第${row.issue}期${field}奖金与官方数据不一致，已停止更新。`);
    if(old[field]===0&&row[field]>0){old[field]=row[field];updated++;}
@@ -63,16 +64,42 @@ async function fetchPage(page){
  }
  throw new Error(`官方接口第${page}页获取失败：${lastError.message}`);
 }
-async function main(){
- const existing=JSON.parse(await fs.readFile(dataFile,'utf8')),known=new Set(existing.map(row=>row.issue)),rows=[];
- for(let page=1;page<=40;page++){
-  const response=await fetchPage(page);rows.push(...response.result);
-  if(response.result.some(row=>known.has(String(row.code).slice(2))))break;
-  if(rows.length>=response.total)throw new Error('已查完官方历史，仍找不到与本地数据重叠的期号。');
-  if(page===40)throw new Error('连续40页无重叠期号，请人工核查。');
+export function parseShanghai(html){
+ const matches=[...html.matchAll(/employee\.push\(\{([^}]+)\}\)/g)];
+ const rows=matches.map(([,body])=>{
+  const fields=Object.fromEntries([...body.matchAll(/'([a-zA-Z0-9]+)':'([^']*)'/g)].map(([,key,value])=>[key,value]));
+  if(!fields.id||!fields.c||!fields.t||fields.bonus1===undefined||fields.bonus2===undefined)throw new Error('上海福彩历史页的数据字段发生变化。');
+  const [red,blue]=fields.c.split('|');
+  return{code:fields.id,date:fields.t.slice(0,10),red,blue,prizegrades:[{type:1,typemoney:fields.bonus1},{type:2,typemoney:fields.bonus2}]};
+ });
+ if(rows.length<10)throw new Error('上海福彩历史页未返回足够的开奖数据。');
+ return rows;
+}
+async function fetchShanghai(){
+ const response=await fetch(shanghai,{headers:{'User-Agent':'Mozilla/5.0','Accept':'text/html'},signal:AbortSignal.timeout(20000)});
+ if(!response.ok)throw new Error(`HTTP ${response.status}`);
+ return parseShanghai(await response.text());
+}
+async function fetchRows(existing){
+ const known=new Set(existing.map(row=>row.issue)),rows=[];
+ try{
+  for(let page=1;page<=40;page++){
+   const response=await fetchPage(page);rows.push(...response.result);
+   if(response.result.some(row=>known.has(String(row.code).slice(2))))return{rows,source:'中国福利彩票'};
+   if(rows.length>=response.total)throw new Error('已查完官方历史，仍找不到与本地数据重叠的期号。');
+  }
+  throw new Error('连续40页无重叠期号，请人工核查。');
+ }catch(error){
+  console.warn(`中国福利彩票接口暂不可用（${error.message}），改用上海市福彩官方历史页。`);
+  const fallback=await fetchShanghai();
+  if(!fallback.some(row=>known.has(row.code.slice(2))))throw new Error('上海福彩数据与本地历史没有重叠期号。');
+  return{rows:fallback,source:'上海市福利彩票发行中心'};
  }
+}
+async function main(){
+ const existing=JSON.parse(await fs.readFile(dataFile,'utf8')),{rows,source}=await fetchRows(existing);
  const merged=mergeDraws(existing,rows);
  if(merged.added||merged.updated)await fs.writeFile(dataFile,JSON.stringify(merged.draws)+'\n','utf8');
- console.log(`官方双色球数据：新增${merged.added}期，补全${merged.updated}个奖金字段，核对${merged.overlap}期；目前共${merged.draws.length}期，截至${merged.draws.at(-1).issue}期。`);
+ console.log(`${source}数据：新增${merged.added}期，补全${merged.updated}个奖金字段，核对${merged.overlap}期；目前共${merged.draws.length}期，截至${merged.draws.at(-1).issue}期。`);
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href)main().catch(error=>{console.error(error.message);process.exitCode=1;});

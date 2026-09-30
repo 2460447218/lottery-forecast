@@ -17,6 +17,6 @@
 
 ## 开奖数据更新
 
-运行 `node scripts/update-draws.mjs` 可获取官方最新开奖，并检查与已有期号是否一致。只有数据完整且核对通过才会修改 `dist/draws.json`。GitHub Actions 每天北京时间 23:17 和次日 08:23 尝试更新；也可在 Actions 页手动运行 **Update SSQ draw history**。有新数据时，任务提交到 `main`，Render 随仓库更新重新部署。该公开查询接口无需 API Key，但不是带服务保障的正式开发者 API；若接口故障或开奖公告延迟，网站会保留最近一次成功同步的数据。
+运行 `node scripts/update-draws.mjs` 可获取官方最新开奖，并检查与已有期号是否一致。优先查询中国福利彩票接口；如果该接口限制 GitHub 服务器访问，则读取[上海市福利彩票发行中心的官方历史页](https://appsh.swlc.net.cn/shfcoc_datachart/datachart/ssq/lskj/ls_award.html)作为备用来源。只有数据完整且核对通过才会修改 `dist/draws.json`。GitHub Actions 每天北京时间 23:17 和次日 08:23 尝试更新；也可在 Actions 页手动运行 **Update SSQ draw history**。有新数据时，任务提交到 `main`，Render 随仓库更新重新部署。两个公开来源均无需 API Key，也都不提供服务保障；若页面故障或开奖公告延迟，网站会保留最近一次成功同步的数据。
 
 历史数据和选号结果仅供研究；过去的表现不能预测未来开奖。
