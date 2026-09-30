@@ -1,0 +1,6 @@
+services:
+  - type: web
+    runtime: static
+    name: lottery-forecast
+    buildCommand: test -f dist/index.html && test -f dist/draws.json
+    staticPublishPath: ./dist
