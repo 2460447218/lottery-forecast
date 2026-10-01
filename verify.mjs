@@ -204,3 +204,22 @@ const multiExp=runMultiExperiment(draws,{...multiInput,tickets:2});
 assert.equal(multiExp.random.samples,100);assert.ok(Number.isFinite(multiExp.random.medianReturn));
 assert.equal(multiExp.cost,80);
 console.log('PASS: multi-ticket uniqueness, candidate containment, seed reproduction, prefix-only selection, per-ticket scoring and exact cost.');
+
+const spreadInput={...multiInput,redPool:12,bluePool:4,tickets:5,maxOverlap:3,blueMode:'balanced'};
+const spreadConfig=validateMultiConfig(spreadInput,draws.length);
+for(let seed=1;seed<=20;seed++){
+ const picks=multiPicks(draws,999,{...spreadConfig,seed}).tickets;
+ assert.equal(picks.length,5);
+ for(let i=0;i<picks.length;i++)for(let j=i+1;j<picks.length;j++)assert.ok(picks[i].red.filter(n=>picks[j].red.includes(n)).length<=3);
+ const blueCounts=Object.values(picks.reduce((counts,pick)=>{counts[pick.blue[0]]=(counts[pick.blue[0]]||0)+1;return counts;},{}));
+ assert.equal(blueCounts.length,4);assert.ok(Math.max(...blueCounts)-Math.min(...blueCounts)<=1);
+}
+assert.throws(()=>validateMultiConfig({...spreadInput,redPool:7},draws.length));
+assert.throws(()=>validateMultiConfig({...spreadInput,maxOverlap:2},draws.length));
+assert.equal(multiExp.stability.samples.length,100);
+assert.equal(multiExp.stability.samples[0].prize,multiExp.prize);
+assert.equal(multiExp.stability.lossRate,multiExp.stability.samples.filter(r=>r.net<0).length/100);
+assert.equal(multiExp.stability.longestNoWin,Math.max(...multiExp.stability.samples.map(r=>r.longestNoWin)));
+let streak=0,maxStreak=0;for(const row of multiBacktest.records){streak=row.tickets.some(ticket=>ticket.counts.slice(1).some(Boolean))?0:streak+1;maxStreak=Math.max(maxStreak,streak);}
+assert.equal(multiBacktest.longestNoWin,maxStreak);
+console.log('PASS: strict overlap limits, balanced blues, impossible configuration rejection and 100-seed stability metrics.');
