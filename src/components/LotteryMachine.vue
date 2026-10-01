@@ -1,38 +1,84 @@
 <script setup>
-import {computed, onBeforeUnmount, ref, watch} from 'vue';
+import {computed, onMounted, onBeforeUnmount, ref, watch} from 'vue';
 import {pad} from '../utils.js';
-const props = defineProps({pick: {type: Object, default: null}, running: Boolean});
+const props = defineProps({pick: {type: Object, default: null}, running: Boolean, active: {type: Boolean, default: true}});
 const emit = defineEmits(['complete']);
-const revealed = ref(0), phase = ref('ready');
-let timer;
+const root = ref(null), viewport = ref(null), revealed = ref(0), phase = ref('ready');
+const loading = ref(true), unavailable = ref(false);
+let scene, loadingScene, timer, token = 0, disposed = false;
 const balls = computed(() => props.pick ? [...props.pick.red.map(number => ({number, kind: '红', blue: false})), ...props.pick.dan.map(number => ({number, kind: '胆', blue: false})), ...props.pick.tuo.map(number => ({number, kind: '拖', blue: false})), ...props.pick.blue.map(number => ({number, kind: '蓝', blue: true}))] : []);
-const status = computed(() => props.running ? phase.value === 'mixing' ? '球仓搅拌中…' : `正在出球 ${revealed.value} / ${balls.value.length}` : balls.value.length ? '本组号码已就位' : '选择规则，开始摇号');
-function finish() {clearTimeout(timer); revealed.value = balls.value.length; phase.value = 'ready'; if (props.running) emit('complete');}
-function revealNext() {
-  if (!props.running) return;
-  phase.value = 'revealing'; revealed.value++;
-  if (revealed.value >= balls.value.length) timer = setTimeout(finish, 250);
-  else timer = setTimeout(revealNext, Math.min(230, 2300 / balls.value.length));
+const status = computed(() => props.running ? phase.value === 'mixing' ? '气流搅拌中' : `正在出球 ${revealed.value} / ${balls.value.length}` : balls.value.length ? '本组号码已就位' : '选择规则，开始摇号');
+function fallback() {
+  unavailable.value = true; loading.value = false;
+  scene?.dispose(); scene = null;
+  if (props.running) finish();
 }
-watch(() => [props.running, props.pick], () => {
-  clearTimeout(timer);
-  if (!props.running) {revealed.value = balls.value.length; phase.value = 'ready'; return;}
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {finish(); return;}
-  revealed.value = 0; phase.value = 'mixing'; timer = setTimeout(revealNext, 1000);
-}, {immediate: true});
-onBeforeUnmount(() => clearTimeout(timer));
+async function ensureScene() {
+  if (scene || disposed || unavailable.value || !viewport.value) return;
+  if (!loadingScene) loadingScene = import('../lottery-scene.js').then(({createLotteryScene}) => {
+    if (disposed) return;
+    scene = createLotteryScene(viewport.value, fallback);
+    scene.setActive(props.active);
+    loading.value = false;
+  }).catch(fallback);
+  return loadingScene;
+}
+function finish() {
+  token++; clearTimeout(timer);
+  scene?.setRunning(false);
+  revealed.value = balls.value.length; phase.value = 'ready';
+  if (props.running) emit('complete');
+}
+function extract(index, playToken) {
+  if (!props.running || playToken !== token) return;
+  if (index >= balls.value.length) {finish(); return;}
+  phase.value = 'revealing';
+  const duration = Math.min(540, 3200 / balls.value.length);
+  scene?.eject(balls.value[index], duration / 1000);
+  timer = setTimeout(() => {
+    if (playToken !== token) return;
+    revealed.value = index + 1;
+    extract(index + 1, playToken);
+  }, duration);
+}
+async function sync() {
+  const playToken = ++token; clearTimeout(timer);
+  if (!props.running) {scene?.setRunning(false); revealed.value = balls.value.length; phase.value = 'ready'; return;}
+  revealed.value = 0; phase.value = 'mixing';
+  await ensureScene();
+  if (disposed || playToken !== token || !props.running) return;
+  if (unavailable.value || matchMedia('(prefers-reduced-motion: reduce)').matches) {finish(); return;}
+  scene?.reset(); scene?.setRunning(true);
+  const bounds = root.value?.getBoundingClientRect();
+  if (bounds && (bounds.top < 0 || bounds.top > innerHeight * .6)) root.value.scrollIntoView({behavior: 'smooth', block: 'start'});
+  timer = setTimeout(() => extract(0, playToken), 1500);
+}
+watch(() => [props.running, props.pick], sync);
+watch(() => props.active, async active => {
+  if (active) await ensureScene();
+  scene?.setActive(active);
+});
+onMounted(async () => {if (props.active) await ensureScene(); sync();});
+onBeforeUnmount(() => {disposed = true; token++; clearTimeout(timer); scene?.dispose();});
 </script>
 
 <template>
-  <div class="lottery-machine" :class="{rolling: running}" :aria-busy="running">
-    <div class="machine-heading"><div><span class="machine-eyebrow">NUMBER STUDIO</span><h3>你的专属摇号机</h3></div><span class="machine-light" :class="{active: running}">{{ running ? '运行中' : '已就绪' }}</span></div>
-    <div class="machine-stage" aria-hidden="true"><div class="machine-globe"><div class="globe-hoop"></div><div class="globe-shine"></div><span v-for="n in 16" :key="n" class="mixing-orbit" :style="{'--i': n, '--x': `${20 + (n * 37 % 62)}%`, '--y': `${20 + (n * 23 % 63)}%`}"><i class="mixing-ball" :class="{blue: n > 12}">{{ pad(n) }}</i></span></div><div class="machine-neck"></div><div class="machine-base"><span>双色球 · 参考号码</span><i></i><i></i><i></i></div></div>
-    <div class="machine-status"><span role="status" aria-live="polite">{{ status }}</span><button v-if="running" type="button" @click="finish">跳过动画</button></div>
-    <div class="machine-tray" aria-label="本次生成的号码"><template v-if="balls.length"><span v-for="(ball, index) in balls" :key="`${ball.kind}-${ball.number}-${index}`" class="machine-slot"><span v-if="index < revealed" class="drawn-ball" :class="{blue: ball.blue, arriving: running}">{{ pad(ball.number) }}</span><span v-else class="empty-slot">·</span><small>{{ ball.kind }}</small></span></template><p v-else>生成参考号码后，球仓会滚动并逐个出球。</p></div>
-    <p class="machine-note">按所选规则展示生成结果，动画不改变选号概率。</p>
-  </div>
+  <section ref="root" class="lottery-machine" :class="{rolling: running}" :aria-busy="running">
+    <div class="machine-heading"><div><span class="machine-eyebrow">THE DRAW ROOM</span><h3>双球仓 · 3D 摇奖机</h3></div><span class="machine-light" :class="{active: running}"><i></i>{{ running ? '摇号中' : '待机' }}</span></div>
+    <div class="machine-view">
+      <div ref="viewport" class="machine-scene" aria-label="三维玻璃球仓和金属摇奖机"></div>
+      <div v-if="loading || unavailable" class="scene-placeholder">{{ unavailable ? '当前设备未启用3D加速，仍可正常生成号码' : '正在准备三维球仓…' }}</div>
+      <div v-else class="scene-controls"><span>拖动查看机身</span><button type="button" @click="scene?.resetView()">复位视角</button></div>
+      <div class="chamber-key" aria-hidden="true"><span><i class="red-dot"></i>红球仓 01—33</span><span><i class="blue-dot"></i>蓝球仓 01—16</span></div>
+    </div>
+    <div class="machine-output">
+      <div class="machine-status"><span role="status" aria-live="polite"><i :class="{pulsing: running}"></i>{{ status }}</span><button v-if="running" type="button" @click="finish">跳过动画</button><span v-else class="machine-output-label">本次参考号码</span></div>
+      <div class="machine-tray" aria-label="本次生成的号码"><template v-if="balls.length"><span v-for="(ball, index) in balls" :key="`${ball.kind}-${ball.number}-${index}`" class="machine-slot"><span v-if="index < revealed" class="drawn-ball" :class="{blue: ball.blue, arriving: running}"><b>{{ pad(ball.number) }}</b></span><span v-else class="empty-slot">{{ String(index + 1).padStart(2, '0') }}</span><small>{{ ball.kind }}</small></span></template><p v-else>设置好规则后，点击“生成参考号码”开始摇号。</p></div>
+    </div>
+    <p class="machine-note">动画展示所选规则的生成结果，不改变选号概率。</p>
+  </section>
 </template>
 
 <style scoped>
-.lottery-machine{overflow:hidden;padding:24px;margin:0 0 22px;border-radius:14px;color:#e7f3f5;background:radial-gradient(ellipse at 50% 35%,#245b66 0%,#153b48 42%,#102b38 100%);box-shadow:0 12px 32px #183f4b18}.machine-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.machine-heading h3{color:#fff;margin:5px 0;font-size:20px}.machine-eyebrow{font-size:10px;letter-spacing:2.5px;color:#a3cbd0}.machine-light{font-size:11px;background:#ffffff0d;border:1px solid #ffffff25;border-radius:20px;padding:6px 10px}.machine-light:before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;background:#9bb8c2;margin-right:6px}.machine-light.active:before{background:#79ebc3;box-shadow:0 0 9px #79ebc3}.machine-stage{width:230px;margin:20px auto 8px;position:relative}.machine-globe{width:194px;height:194px;margin:auto;border-radius:50%;border:3px solid #94cad06b;position:relative;overflow:hidden;background:radial-gradient(circle at 35% 25%,#c0e5ec30,#163c494d 60%,#0a2839a1);box-shadow:inset 0 0 30px #a6d5dd25,0 0 30px #81c9da14}.globe-shine{position:absolute;inset:10px;border-radius:50%;border-top:6px solid #ffffff3d;transform:rotate(-32deg);pointer-events:none;z-index:2}.globe-hoop{position:absolute;inset:4px 28px;border:1px solid #c6e7eb30;border-radius:50%;transform:rotate(-28deg)}.mixing-orbit{position:absolute;left:var(--x);top:var(--y);margin:-12px;width:25px;height:25px}.mixing-ball{display:grid;place-items:center;width:25px;height:25px;border-radius:50%;font:bold 10px system-ui;color:#a93548;background:radial-gradient(circle at 32% 25%,#fff,#ffc8cf 65%,#dc7386);box-shadow:2px 3px 5px #061b3640;font-style:normal}.mixing-ball.blue{background:radial-gradient(circle at 32% 25%,#fff,#b3d9ff 65%,#507eca);color:#224b94}.rolling .globe-hoop{animation:hoop-spin 1.3s linear infinite}.rolling .mixing-orbit{animation:ball-tumble calc(.7s + var(--i)*.027s) ease-in-out infinite alternate;animation-delay:calc(var(--i)*-.13s)}.machine-neck{height:14px;width:35px;margin:-2px auto 0;background:linear-gradient(90deg,#4f8491,#a6ccd1,#3c7482);border-radius:0 0 6px 6px}.machine-base{height:33px;border-radius:10px 10px 6px 6px;display:flex;gap:4px;align-items:center;padding:0 14px;background:linear-gradient(#3b6e7e,#254e60);border:1px solid #ffffff20;box-shadow:0 8px 15px #03192755}.machine-base span{font-size:10px;margin-right:auto;color:#d6edf0}.machine-base i{width:4px;height:4px;background:#77c0c2;border-radius:50%}.machine-status{display:flex;justify-content:center;align-items:center;gap:16px;font-size:12px;min-height:36px;color:#cbe5e7}.machine-status button{background:transparent;border:1px solid #aacfd34d;color:#e4f5f6;padding:5px 10px;border-radius:6px;font-size:12px}.machine-tray{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;padding:16px 10px 10px;border-radius:10px;border:1px solid #c4e5eb22;background:#071c2a66;min-height:78px}.machine-slot{text-align:center}.machine-slot small{display:block;font-size:9px;margin-top:6px;color:#aac6d0}.drawn-ball,.empty-slot{display:grid;place-items:center;width:38px;height:38px;border-radius:50%;font:700 15px system-ui}.drawn-ball{background:radial-gradient(circle at 32% 22%,#fff7f8,#ffd5dc 52%,#dd8494);color:#a83147;box-shadow:0 4px 8px #0005,inset -2px -3px 5px #b92b4b20}.drawn-ball.blue{background:radial-gradient(circle at 32% 22%,#fff,#c5e3ff 52%,#719cd8);color:#2254a1}.empty-slot{border:1px dashed #aacbd04d;color:#537a88}.arriving{animation:ball-arrive .32s ease-out}.machine-tray p{font-size:12px;color:#aecbd2;margin:auto}.machine-note{font-size:10px;text-align:center;color:#9bbdc6;margin:12px 0 0}@keyframes ball-tumble{0%{transform:translate(-23px,24px) rotate(-120deg)}50%{transform:translate(16px,-36px) rotate(50deg)}100%{transform:translate(28px,22px) rotate(200deg)}}@keyframes hoop-spin{to{transform:rotate(332deg)}}@keyframes ball-arrive{from{opacity:0;transform:translateY(-18px) scale(.65)}to{opacity:1;transform:translateY(0) scale(1)}}@media(max-width:760px){.lottery-machine{padding:18px}.machine-heading h3{font-size:18px}.machine-tray{gap:8px}.drawn-ball,.empty-slot{width:33px;height:33px;font-size:14px}}@media(prefers-reduced-motion:reduce){.lottery-machine *{animation:none!important}}
+.lottery-machine{overflow:hidden;margin:0 0 24px;border:1px solid #d4dfe4;border-radius:18px;background:#f8fafb;color:#193747;box-shadow:0 14px 36px #2944540c;scroll-margin-top:20px}.machine-heading{display:flex;justify-content:space-between;align-items:center;padding:24px 26px 16px;gap:12px}.machine-heading h3{font-size:21px;margin:6px 0 0;font-weight:600;letter-spacing:.5px}.machine-eyebrow{font:600 10px system-ui;letter-spacing:2.8px;color:#8899a1}.machine-light{display:flex;align-items:center;gap:7px;font-size:11px;border:1px solid #d7e2e6;background:#fff;border-radius:30px;padding:7px 11px;color:#768b96;white-space:nowrap}.machine-light i{width:6px;height:6px;border-radius:50%;background:#a6b6bf}.machine-light.active i{background:#16a487;box-shadow:0 0 0 4px #16a48715}.machine-light.active{color:#0a826d}.machine-view{position:relative;background:#e9eff1;border-top:1px solid #e1e8eb;border-bottom:1px solid #d9e3e7}.machine-scene{height:440px;width:100%;touch-action:pan-y}.machine-scene :deep(canvas){display:block;width:100%;height:100%;touch-action:pan-y!important}.scene-placeholder{position:absolute;inset:0;display:grid;place-items:center;text-align:center;font-size:13px;color:#718894;padding:24px}.scene-controls{position:absolute;right:18px;top:13px;display:flex;align-items:center;gap:12px;color:#7c929c;font-size:10px}.scene-controls button{font-size:10px;padding:5px 9px;background:#ffffffb3;border:1px solid #d3e0e5;border-radius:5px;color:#4e6b7a}.chamber-key{position:absolute;bottom:14px;left:0;right:0;display:flex;justify-content:center;gap:30px;font-size:11px;color:#55707d;pointer-events:none}.chamber-key span{display:flex;gap:7px;align-items:center}.chamber-key i{display:inline-block;width:7px;height:7px;border-radius:50%}.red-dot{background:#c3223c}.blue-dot{background:#2865ad}.machine-output{padding:20px 24px 14px;background:linear-gradient(180deg,#fff,#f4f8fa)}.machine-status{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:26px;font-size:12px;color:#476471}.machine-status>span:first-child{display:flex;align-items:center;gap:8px}.machine-status i{width:5px;height:5px;background:#128a80;border-radius:50%}.machine-status button{padding:5px 10px;border:1px solid #c8d9df;border-radius:6px;color:#395d6d;background:white;font-size:12px}.machine-output-label{font-size:10px;color:#93a4ad}.machine-tray{display:flex;justify-content:center;flex-wrap:wrap;gap:12px;padding:18px 0 0;min-height:84px}.machine-slot{text-align:center}.machine-slot small{display:block;font-size:10px;margin-top:8px;color:#8b9da6}.drawn-ball,.empty-slot{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;font:700 15px Arial}.drawn-ball{background:radial-gradient(circle at 30% 22%,#fc8394 0,#db2546 35%,#8e102e 90%);box-shadow:inset -3px -4px 7px #56071f50,inset 2px 2px 5px #fff5,0 5px 7px #3e172b24;border:1px solid #b61c3a}.drawn-ball b{display:grid;place-items:center;width:27px;height:27px;border-radius:50%;background:radial-gradient(circle at 30% 20%,#fff,#eae4d9);color:#2a3340;box-shadow:inset 0 -1px 2px #b5a99a77;font-size:14px}.drawn-ball.blue{background:radial-gradient(circle at 30% 22%,#8bbbea 0,#2468b1 38%,#123968 90%);border-color:#2b5890}.empty-slot{border:1px dashed #c9d7de;background:#edf3f6;color:#b1c1c9;font-size:11px}.machine-tray p{font-size:12px;margin:auto;color:#8296a1}.machine-note{font-size:10px;color:#8fa0aa;text-align:center;margin:0;padding:0 12px 18px;background:#f4f8fa}.arriving{animation:arrive .3s ease-out}.pulsing{animation:pulse .9s infinite}@keyframes arrive{from{opacity:0;transform:translateY(-15px) rotate(-35deg)}to{opacity:1;transform:translateY(0) rotate(0)}}@keyframes pulse{50%{opacity:.3}}@media(max-width:760px){.machine-heading{padding:18px 18px 14px}.machine-heading h3{font-size:18px}.machine-scene{height:340px}.machine-output{padding:16px 16px 12px}.machine-tray{gap:8px}.drawn-ball,.empty-slot{width:36px;height:36px}.drawn-ball b{width:24px;height:24px;font-size:12px}.machine-output-label{display:none}.chamber-key{font-size:10px;gap:18px}}@media(prefers-reduced-motion:reduce){.lottery-machine *{animation:none!important}}
 </style>

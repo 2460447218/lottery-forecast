@@ -124,3 +124,20 @@ const tracedClassic=predictBirthdays(draws,birthdayConfig,['1994-12-31']);
 assert.ok(tracedClassic.sources.blue[15].text.includes('31 → 15'));
 assert.ok(tracedClassic.sources.red[31].text.includes('日期：31'));
 console.log('PASS: birthday provenance, family allocation, rotation, duplicate birthdays, random fill, dan and manual backtest.');
+
+const {createBalls, stepBalls} = await import('./src/ball-physics.mjs');
+for (const [count, radius, size] of [[33, 1.315, .185], [16, 1.055, .18]]) {
+ const balls = createBalls(count, radius, size);
+ balls[0].out = true;
+ const removed = {...balls[0]};
+ for (let step = 0; step < 1200; step++) {
+  stepBalls(balls, radius, size, 1 / 120, step < 900, step / 120);
+  for (const ball of balls) {
+   assert.ok([ball.x,ball.y,ball.z,ball.vx,ball.vy,ball.vz].every(Number.isFinite));
+   assert.ok(Math.hypot(ball.x,ball.y,ball.z) <= radius - size + 1e-9);
+  }
+ }
+ assert.deepEqual(balls[0], removed);
+ assert.equal(new Set(balls.map(ball=>ball.number)).size,count);
+}
+console.log('PASS: 3D chamber confinement, stable mixing/settling and extracted-ball isolation.');
