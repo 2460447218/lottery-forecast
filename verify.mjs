@@ -141,3 +141,27 @@ for (const [count, radius, size] of [[33, 1.315, .185], [16, 1.055, .18]]) {
  assert.equal(new Set(balls.map(ball=>ball.number)).size,count);
 }
 console.log('PASS: 3D chamber confinement, stable mixing/settling and extracted-ball isolation.');
+
+const {compareStrategies}=await import('./src/comparison.mjs');
+const combined={...base,strategy:'combined',methods:['hot100','cold100','zones'],periods:100};
+assert.throws(()=>validateConfig({...combined,methods:['hot100']},draws.length));
+assert.throws(()=>validateConfig({...combined,methods:['hot100','manual']},draws.length));
+const combinedPick=predict(draws,combined);
+assert.equal(new Set(combinedPick.pick.red).size,6);
+assert.equal(combinedPick.tickets,2);
+assert.deepEqual(combinedPick.pick,predict(draws,{...combined,methods:[...combined.methods].reverse()}).pick);
+const combinedHistory=runBacktest(draws,combined);
+const prefix=draws.slice(0,combined.end-1);
+assert.deepEqual(combinedHistory.records.at(-1).pick,predict(prefix,combined).pick);
+const compareInput={...combined,budget:10};
+const comparison=compareStrategies(draws,compareInput);
+assert.equal(comparison.trainingPeriods+comparison.validationPeriods,100);
+assert.ok(comparison.rows.every(row=>row.costPerPeriod<=10&&row.training.cost===row.costPerPeriod*70&&row.validation.cost===row.costPerPeriod*30));
+assert.ok(comparison.rows.some(row=>row.config.strategy==='combined'));
+const comparisonAltered=structuredClone(draws);
+for(let i=combined.end-30;i<combined.end;i++)Object.assign(comparisonAltered[i],{red:[1,2,3,4,5,6],blue:1});
+const changed=compareStrategies(comparisonAltered,compareInput);
+assert.deepEqual(changed.rows.map(row=>row.training),comparison.rows.map(row=>row.training));
+assert.equal(changed.bestWin,comparison.bestWin);assert.equal(changed.bestReturn,comparison.bestReturn);
+assert.throws(()=>compareStrategies(draws,{...compareInput,budget:1}));
+console.log('PASS: combined ranking, fixed cost, no lookahead, budget filtering and independent validation ranking.');

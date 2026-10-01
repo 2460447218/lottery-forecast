@@ -1,14 +1,15 @@
 <script setup>
 import {computed, defineAsyncComponent, onMounted, onUnmounted, reactive, ref, shallowRef, toRaw, watch} from 'vue';
-import {STRATEGIES, GRADES, TOTAL, betCount, betLabel, validateConfig, predict} from '../engine.mjs';
+import {STRATEGIES, COMBINABLE, GRADES, TOTAL, betCount, betLabel, validateConfig, predict} from '../engine.mjs';
 import {backtestOptions, prizeOptions} from '../echarts-options.mjs';
 const EChart = defineAsyncComponent(() => import('./EChart.vue'));
 import {fmt, money, pad, freshSeed, downloadCsv} from '../utils.js';
 import Balls from './Balls.vue';
+import StrategyComparison from './StrategyComparison.vue';
 
 const props = defineProps({draws: {type: Array, required: true}});
 const emit = defineEmits(['error', 'birthday']);
-const config = reactive({strategy: 'hot100', type: 'pool', redCount: 6, blueCount: 2, danCount: 4, tuoCount: 5, seed: 20260930, freshRandom: true, periods: 1000, end: props.draws.length, manual: {red: [], blue: [], dan: [], tuo: []}});
+const config = reactive({strategy: 'hot100', methods: ['hot100','cold100','zones'], type: 'pool', redCount: 6, blueCount: 2, danCount: 4, tuoCount: 5, seed: 20260930, freshRandom: true, periods: 1000, end: props.draws.length, manual: {red: [], blue: [], dan: [], tuo: []}});
 watch(() => config.strategy, (value, previous) => {
   if (value === 'birthday') {config.strategy = previous; emit('birthday');}
 });
@@ -65,7 +66,7 @@ function run() {
   if (running.value) return Promise.reject(new Error('正在运行回测，请稍候。'));
   let input;
   try {
-    if (config.strategy === 'random' && config.freshRandom) config.seed = freshSeed();
+    if ((config.strategy === 'random' || config.strategy === 'combined' && config.methods.includes('random')) && config.freshRandom) config.seed = freshSeed();
     input = validateConfig(structuredClone(toRaw(config)), props.draws.length);
   } catch (error) {emit('error', error.message); return Promise.reject(error);}
   emit('error', ''); running.value = true; progress.value = 0;
@@ -82,6 +83,7 @@ function run() {
     worker.postMessage({draws: toRaw(props.draws), config: input});
   });
 }
+function applyComparison(candidate) {Object.assign(config, candidate, {end:config.end,periods:config.periods}); run().catch(() => {});}
 function rerunRandom() {config.strategy = 'random'; config.freshRandom = true; run().catch(() => {});}
 
 function resetFilters() {Object.assign(filters, {query: '', scope: 'all', outcome: 'all', grade: 'all'});}
@@ -108,9 +110,9 @@ onUnmounted(() => worker?.terminate());
 </script>
 
 <template>
-  <main id="backtest" class="tab-panel"><div class="experiment-layout"><aside class="config card"><div class="section-kicker"><span>01</span> 配置你的实验</div><h2>回测设置</h2><form @submit.prevent="run().catch(() => {})">
+  <main id="backtest" class="tab-panel"><StrategyComparison :draws="draws" :end="config.end" :periods="config.periods" @error="emit('error', $event)" @apply="applyComparison" /><div class="experiment-layout"><aside class="config card"><div class="section-kicker"><span>01</span> 配置你的实验</div><h2>回测设置</h2><form @submit.prevent="run().catch(() => {})">
     <label for="periods">回测期数 <small>截止所选开奖期</small></label><div class="quick-buttons"><button v-for="option in [[100,'100期'],[500,'500期'],[1000,'1000期'],['all','全部可用']]" :key="option[0]" type="button" :class="{selected: config.periods === (option[0] === 'all' ? maxPeriods : option[0])}" @click="choosePeriod(option[0])">{{ option[1] }}</button></div><input id="periods" v-model.number="config.periods" type="number" min="1" :max="maxPeriods" step="1" required aria-label="自定义回测期数" /><label for="end-issue">截止期号</label><select id="end-issue" v-model.number="config.end"><option v-for="(row, index) in draws.slice(500).reverse()" :key="row.issue" :value="draws.length - index">{{ row.issue }} · {{ row.date }}</option></select>
-    <label for="strategy">选号方式</label><select id="strategy" v-model="config.strategy"><option v-for="(label, key) in STRATEGIES" :key="key" :value="key">{{ label }}</option><option value="birthday">亲人生日组合 · 填写生日</option></select><p class="field-help">{{ help[config.strategy] }}</p>
+    <label for="strategy">选号方式</label><select id="strategy" v-model="config.strategy"><option v-for="(label, key) in STRATEGIES" :key="key" :value="key">{{ label }}</option><option value="birthday">亲人生日组合 · 填写生日</option></select><fieldset v-if="config.strategy === 'combined'" class="method-picker"><legend>组合规则（至少两种）</legend><label v-for="[key, name] in COMBINABLE" :key="key" class="check-row"><input v-model="config.methods" type="checkbox" :value="key" /><span>{{ name }}</span></label><p class="field-help">每种规则按排名给号码计分，等权相加后取前几名；同分按号码从小到大排序。组合不增加所设注数。</p></fieldset><p class="field-help">{{ help[config.strategy] }}</p>
     <label for="bet-type">投注方式</label><select id="bet-type" v-model="config.type"><option value="pool">单式 / 复式</option><option value="dan">红球胆拖</option></select><div v-if="config.type === 'pool'" class="two-col"><div><label for="red-count">红球个数</label><input id="red-count" v-model.number="config.redCount" type="number" min="6" max="33" required /></div><div><label for="blue-count">蓝球个数</label><input id="blue-count" v-model.number="config.blueCount" type="number" min="1" max="16" required /></div></div><div v-else><div class="two-col"><div><label for="dan-count">胆码个数</label><input id="dan-count" v-model.number="config.danCount" type="number" min="1" max="5" /></div><div><label for="tuo-count">拖码个数</label><input id="tuo-count" v-model.number="config.tuoCount" type="number" min="2" max="29" /></div></div><label for="dan-blue-count">蓝球个数</label><input id="dan-blue-count" v-model.number="config.blueCount" type="number" min="1" max="16" /><p class="field-help">胆码固定出现在每一注中；拖码与胆码不能重复。</p></div>
     <div v-if="config.strategy === 'manual'" id="manual-picker"><template v-for="[key, label, max, target] in pickerGroups" :key="key"><div class="picker-title">{{ label }}<span>已选 {{ config.manual[key].length }} / {{ target }}</span></div><div class="number-grid" role="group" :aria-label="`选择${label}`"><button v-for="number in max" :key="number" type="button" class="number-button" :class="[key, {selected: config.manual[key].includes(number)}]" :aria-label="`${label}${pad(number)}`" :aria-pressed="config.manual[key].includes(number)" :disabled="isBlocked(key, number)" @click="pick(key, number, target)">{{ pad(number) }}</button></div></template><div class="picker-actions"><button type="button" @click="clearPicks">清空号码</button><button type="button" @click="fillPicks">用当前热号填入</button></div></div>
     <div v-if="config.strategy === 'random'"><label class="check-row"><input v-model="config.freshRandom" type="checkbox" /><span>每次运行重新随机</span></label><label for="seed">本次随机编号 <small>取消勾选后可复现</small></label><input id="seed" v-model.number="config.seed" type="number" min="1" max="4294967295" :disabled="config.freshRandom" /></div>

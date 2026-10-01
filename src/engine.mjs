@@ -1,6 +1,8 @@
 export const TOTAL=17721088;
 export const GRADES=['未中奖','一等奖','二等奖','三等奖','四等奖','五等奖','六等奖','福运奖'];
 export const STRATEGIES={hot100:'近100期热号',blend:'长短期加权热号',hot30:'近30期热号',cold100:'近100期冷号',overdue:'遗漏最长',hotcold:'冷热交替',oddeven:'红球奇偶交替',zones:'红球三区轮选',random:'随机选号',manual:'手动固定号码'};
+STRATEGIES.combined='多选组合';
+export const COMBINABLE = Object.entries(STRATEGIES).filter(([key]) => !['manual','combined'].includes(key));
 export function choose(n,k){if(k<0||n<k||n<0)return 0;k=Math.min(k,n-k);let a=1;for(let i=1;i<=k;i++)a=a*(n-i+1)/i;return Math.round(a);}
 function integer(v,min,max,label){let x=Number(v);if(!Number.isInteger(x)||x<min||x>max)throw new Error(`${label}需要是 ${min}—${max} 之间的整数。`);return x;}
 function numbers(v,len,max,label){if(!Array.isArray(v)||v.length!==len||new Set(v).size!==len||v.some(x=>!Number.isInteger(x)||x<1||x>max))throw new Error(`${label}请选择 ${len} 个不重复的号码（1—${max}）。`);return [...v].sort((a,b)=>a-b);}
@@ -8,6 +10,10 @@ export function validateConfig(c,n,forPrediction=false){
  if(!Object.hasOwn(STRATEGIES,c.strategy))throw new Error('请选择有效的选号规则。');
  if(!['pool','dan'].includes(c.type))throw new Error('请选择有效的投注方式。');
  const cfg={strategy:c.strategy,type:c.type,blueCount:integer(c.blueCount,1,16,'蓝球个数'),seed:integer(c.seed??20260930,1,4294967295,'随机种子')};
+ if(c.strategy==='combined'){
+  if(!Array.isArray(c.methods)||c.methods.length<2||new Set(c.methods).size!==c.methods.length||c.methods.some(key=>!COMBINABLE.some(([id])=>id===key)))throw new Error('组合方式请至少选择两种不同的规则。');
+  cfg.methods=[...c.methods];
+ }
  if(c.type==='pool')cfg.redCount=integer(c.redCount,6,33,'红球个数');
  else{cfg.danCount=integer(c.danCount,1,5,'胆码个数');cfg.tuoCount=integer(c.tuoCount,7-cfg.danCount,33-cfg.danCount,'拖码个数');}
  if(c.strategy==='manual'){
@@ -28,6 +34,14 @@ export function numberStats(data,end=data.length){
  return [['red',33],['blue',16]].reduce((out,[color,n])=>{out[color]=Array.from({length:n},(_,j)=>({number:j+1,count:0,last100:0,last30:0,omission:end}));for(let i=0;i<end;i++){for(const v of color==='red'?data[i].red:[data[i].blue]){const s=out[color][v-1];s.count++;if(i>=end-100)s.last100++;if(i>=end-30)s.last30++;s.omission=end-1-i;}}return out;},{});
 }
 function rankFromHistory(data,t,c){
+ if(c.strategy==='combined'){
+  const rankings=c.methods.map(strategy=>rankFromHistory(data,t,{...c,strategy}));
+  return Object.fromEntries([['red',33],['blue',16]].map(([color,n])=>{
+   const scores=new Array(n).fill(0);
+   for(const ranking of rankings)ranking[color].forEach((number,index)=>scores[number-1]+=n-index);
+   return [color,Array.from({length:n},(_,i)=>i+1).sort((a,b)=>scores[b-1]-scores[a-1]||a-b)];
+  }));
+ }
  if(c.strategy==='random'){const random=rng((c.seed^Math.imul(t+1,2654435761))>>>0);return{red:shuffled(33,random),blue:shuffled(16,random)};}
  const out={};for(const [color,n] of [['red',33],['blue',16]]){
   const a=new Array(n).fill(0);let start=Math.max(0,t-100);
