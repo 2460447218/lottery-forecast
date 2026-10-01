@@ -12,3 +12,5 @@
 .source-ball{padding:0;cursor:pointer;font-family:inherit}.source-ball:focus-visible{outline:3px solid var(--navy);outline-offset:3px}.number-source{margin-top:16px;padding:12px 14px;border-radius:8px;background:#f0f6f8;font-size:13px;line-height:1.8;overflow-wrap:anywhere}.number-source strong{margin-right:10px}.family-combination-info{margin-top:16px;padding:12px 16px;border:1px solid var(--line);border-radius:8px;font-size:13px;line-height:1.8;overflow-wrap:anywhere}.family-combination-info p{margin:4px 0}.source-table-cell{min-width:180px;max-width:300px;white-space:normal;overflow-wrap:anywhere;font-size:12px}
 
 .prediction-fields{border:0;padding:0;margin:0;min-width:0}.prediction-fields:disabled{opacity:.65}
+
+.tabs{overflow-x:auto;max-width:100%}.tab{flex-shrink:0}

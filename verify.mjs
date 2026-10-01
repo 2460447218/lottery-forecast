@@ -165,3 +165,22 @@ assert.deepEqual(changed.rows.map(row=>row.training),comparison.rows.map(row=>ro
 assert.equal(changed.bestWin,comparison.bestWin);assert.equal(changed.bestReturn,comparison.bestReturn);
 assert.throws(()=>compareStrategies(draws,{...compareInput,budget:1}));
 console.log('PASS: combined ranking, fixed cost, no lookahead, budget filtering and independent validation ranking.');
+
+const {runResearch,researchFeatures,researchPick}=await import('./src/research.mjs');
+const researchData=draws.slice(0,1000),researchRun=runResearch(researchData);
+assert.equal(researchRun.candidateCount,240);
+assert.equal(researchRun.random.samples,200);
+assert.equal(researchRun.test.periods,100);
+assert.equal(researchRun.test.cost,400);
+assert.equal(researchRun.testRecords.length,100);
+assert.ok(researchRun.random.upperTail>0&&researchRun.random.upperTail<=1);
+const unseenChanged=structuredClone(researchData);
+for(let i=900;i<1000;i++)Object.assign(unseenChanged[i],{red:[1,2,3,4,5,6],blue:1});
+const researchChanged=runResearch(unseenChanged);
+assert.equal(researchRun.selected.id,researchChanged.selected.id);
+assert.deepEqual(researchRun.selected,researchChanged.selected);
+assert.deepEqual(researchFeatures(researchData,900,100),researchFeatures(unseenChanged,900,100));
+const featurePick=researchPick(researchFeatures(researchData,900,100),[1,2,1,1,2,3,1],7,3);
+assert.equal(new Set(featurePick.red).size,7);assert.equal(new Set(featurePick.blue).size,3);
+assert.throws(()=>runResearch(researchData,{end:999}));
+console.log('PASS: research split, frozen selection independent of final draws, prefix-only features and random control costs.');
