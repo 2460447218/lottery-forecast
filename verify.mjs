@@ -66,3 +66,48 @@ assert.equal(birthdayDan.pick.tuo.length,5);
 assert.ok(!birthdayDan.pick.dan.some(n=>birthdayDan.pick.tuo.includes(n)));
 for (const dates of [[],[''],['2001-02-29'],['2000-13-01'],['2999-01-01']]) assert.throws(()=>predictBirthdays(draws,birthdayConfig,dates));
 console.log('PASS: birthday combinations, validation, duplicate dates, full pools and fixed-number backtest config.');
+
+const {predictBirthdayMix} = await import('./src/birthday.mjs');
+const family = [{name:'妈妈',date:'1965-05-12'}, {name:'爸爸',date:'1964-05-20'}, {name:'我',date:'1994-05-31'}];
+const mixedOptions = {birthdayRedCount:3,round:0,seed:12345};
+const familyMix = predictBirthdayMix(draws,birthdayConfig,family,mixedOptions);
+assert.equal(familyMix.participating.length,3);
+assert.equal(familyMix.waiting.length,0);
+assert.equal(familyMix.birthdayRedCount,3);
+assert.equal(familyMix.randomRedCount,3);
+assert.equal(familyMix.pick.red.length,6);
+assert.equal(new Set(familyMix.pick.red).size,6);
+assert.equal(Object.values(familyMix.sources.red).filter(s=>s.kind==='birthday').length,3);
+assert.equal(Object.values(familyMix.sources.blue).filter(s=>s.kind==='birthday').length,1);
+assert.deepEqual(familyMix.pick,predictBirthdayMix(draws,birthdayConfig,family,mixedOptions).pick);
+const nextMixed = predictBirthdayMix(draws,birthdayConfig,family,{...mixedOptions,seed:87654,round:1});
+assert.deepEqual(Object.entries(familyMix.sources.red).filter(([,s])=>s.kind==='birthday'),Object.entries(nextMixed.sources.red).filter(([,s])=>s.kind==='birthday'));
+assert.notDeepEqual(familyMix.pick.red,nextMixed.pick.red);
+const rotation = new Set();
+for(let round=0;round<3;round++) {
+ const r=predictBirthdayMix(draws,birthdayConfig,family,{birthdayRedCount:1,round,seed:1});
+ assert.equal(r.participating.length,1); assert.equal(r.waiting.length,2); rotation.add(r.participating[0]);
+}
+assert.equal(rotation.size,3);
+const twins = predictBirthdayMix(draws,birthdayConfig,[family[0],{...family[0],name:'阿姨'}],mixedOptions);
+assert.equal(twins.participating.length,1);
+assert.ok(twins.participating[0].includes('妈妈 / 阿姨'));
+const mixedDan = predictBirthdayMix(draws,{type:'dan',danCount:4,tuoCount:5,blueCount:2},family,mixedOptions);
+assert.equal(mixedDan.pick.dan.length,4);assert.equal(mixedDan.pick.tuo.length,5);
+assert.ok(!mixedDan.pick.dan.some(n=>mixedDan.pick.tuo.includes(n)));
+const fixedMixed=runBacktest(draws,{...mixedDan.config,end:baselineEnd,periods:10});
+assert.equal(fixedMixed.records.length,10);
+const fullMixed=predictBirthdayMix(draws,{type:'pool',redCount:33,blueCount:16},family,{...mixedOptions,birthdayRedCount:33});
+assert.deepEqual(fullMixed.pick.red,Array.from({length:33},(_,i)=>i+1));
+assert.deepEqual(fullMixed.pick.blue,Array.from({length:16},(_,i)=>i+1));
+assert.ok(fullMixed.birthdayRedCount < 33);
+for(const r of [familyMix,nextMixed,mixedDan,fullMixed]) {
+ for(const n of [...r.pick.red,...r.pick.dan,...r.pick.tuo]) assert.ok(r.sources.red[n]?.text);
+ for(const n of r.pick.blue) assert.ok(r.sources.blue[n]?.text);
+}
+for(const quota of [0,7,1.5,NaN]) assert.throws(()=>predictBirthdayMix(draws,birthdayConfig,family,{...mixedOptions,birthdayRedCount:quota}));
+assert.throws(()=>predictBirthdayMix(draws,birthdayConfig,[{date:'2001-02-29'}],mixedOptions));
+const tracedClassic=predictBirthdays(draws,birthdayConfig,['1994-12-31']);
+assert.ok(tracedClassic.sources.blue[15].text.includes('31 → 15'));
+assert.ok(tracedClassic.sources.red[31].text.includes('日期：31'));
+console.log('PASS: birthday provenance, family allocation, rotation, duplicate birthdays, random fill, dan and manual backtest.');
