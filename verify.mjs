@@ -184,3 +184,23 @@ const featurePick=researchPick(researchFeatures(researchData,900,100),[1,2,1,1,2
 assert.equal(new Set(featurePick.red).size,7);assert.equal(new Set(featurePick.blue).size,3);
 assert.throws(()=>runResearch(researchData,{end:999}));
 console.log('PASS: research split, frozen selection independent of final draws, prefix-only features and random control costs.');
+
+const {validateMultiConfig,multiPicks,runMultiBacktest,runMultiExperiment}=await import('./src/multibet.mjs');
+const multiInput={strategy:'hot100',redPool:7,bluePool:2,tickets:7,seed:12345,periods:20,end:1000};
+const multiConfig=validateMultiConfig(multiInput,draws.length);
+const sevenTickets=multiPicks(draws,999,multiConfig);
+assert.equal(sevenTickets.tickets.length,7);
+assert.equal(new Set(sevenTickets.tickets.map(ticket=>ticket.red.join(','))).size,7);
+assert.ok(sevenTickets.tickets.every(ticket=>ticket.red.length===6&&ticket.blue.length===1&&ticket.red.every(n=>sevenTickets.redPool.includes(n))&&sevenTickets.bluePool.includes(ticket.blue[0])));
+assert.deepEqual(sevenTickets,multiPicks(draws.slice(0,999),999,multiConfig));
+assert.deepEqual(sevenTickets,multiPicks(draws,999,multiConfig));
+assert.notDeepEqual(sevenTickets,multiPicks(draws,999,{...multiConfig,seed:54321}));
+assert.throws(()=>validateMultiConfig({...multiInput,tickets:8},draws.length));
+const multiBacktest=runMultiBacktest(draws,multiInput);
+assert.equal(multiBacktest.cost,7*2*20);
+assert.equal(multiBacktest.counts.reduce((a,b)=>a+b,0),7*20);
+for(const row of multiBacktest.records){assert.equal(row.payout,row.tickets.reduce((s,t)=>s+t.payout,0));assert.equal(row.cost,14);for(const ticket of row.tickets)assert.equal(ticket.payout,scoreDraw({red:row.actualRed,blue:row.actualBlue,first:draws.find(d=>d.issue===row.issue).first,second:draws.find(d=>d.issue===row.issue).second,special:draws.find(d=>d.issue===row.issue).special},ticket.pick,{type:'pool'}).payout);}
+const multiExp=runMultiExperiment(draws,{...multiInput,tickets:2});
+assert.equal(multiExp.random.samples,100);assert.ok(Number.isFinite(multiExp.random.medianReturn));
+assert.equal(multiExp.cost,80);
+console.log('PASS: multi-ticket uniqueness, candidate containment, seed reproduction, prefix-only selection, per-ticket scoring and exact cost.');

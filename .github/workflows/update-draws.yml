@@ -30,6 +30,7 @@ jobs:
           npm ci
           if ! git diff --quiet -- public/draws.json; then
             npm run research
+            npm run multibet
           fi
           npm run build
           npm test
@@ -41,6 +42,6 @@ jobs:
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A -- public/draws.json public/research.json dist
+          git add -A -- public/draws.json public/research.json public/multibet.json dist
           git commit -m 'Update official SSQ draw history'
           git push

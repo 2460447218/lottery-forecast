@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node verify.mjs",
-    "research": "node scripts/run-research.mjs"
+    "research": "node scripts/run-research.mjs",
+    "multibet": "node scripts/run-multibet.mjs"
   },
   "dependencies": {
     "echarts": "6.1.0",
