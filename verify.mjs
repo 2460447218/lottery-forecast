@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import {runBacktest,validateConfig,scoreDraw,grade,predict,choose,selectNumbers,numberStats} from './src/engine.mjs';
-import {chartModel,chartSvg,chartSelection,chartIndexAt} from './src/chart.mjs';
+import {backtestOptions,prizeOptions,chartRows} from './src/echarts-options.mjs';
 import {normalizeDraw,mergeDraws} from './scripts/update-draws.mjs';
 const draws=JSON.parse(fs.readFileSync(new URL('./public/draws.json',import.meta.url),'utf8'));
 const baselineEnd=draws.findIndex(r=>r.issue==='26113')+1;
@@ -16,11 +16,24 @@ for(const [redCount,blueCount,hot,blend] of [[6,2,3450,3325],[7,1,18365,12980],[
 const dan=runBacktest(draws,{...base,type:'dan',danCount:4,tuoCount:7,blueCount:1});assert.equal(dan.prize,5070110);assert.equal(dan.counts[1],1);assert.equal(dan.records.find(r=>r.counts[1]).issue,'07016');
 const recent=runBacktest(draws,{...base,periods:1000});assert.equal(recent.prize,1255);assert.equal(recent.winningPeriods,140);
 for(const mode of ['cumulative','recent']){
- const model=chartModel(recent.records,mode),markup=chartSvg(model);
- assert.equal(model.end,999);assert.equal(model.start,mode==='recent'?970:0);
- assert.equal(chartIndexAt(model,72),model.start);assert.equal(chartIndexAt(model,780),model.end);
- assert.ok(markup.includes('chart-selection'));assert.ok(chartSelection(model,model.start).includes('circle'));
+ const rows=chartRows(recent.records,mode),option=backtestOptions(recent.records,mode,false);
+ assert.equal(rows.length,mode==='recent'?30:1000);
+ assert.deepEqual(option.xAxis.data,rows.map(row=>row.issue));
+ assert.equal(option.animation,false);
+ assert.equal(option.dataZoom.length,2);
+ if(mode==='cumulative'){
+  assert.deepEqual(option.series[0].data,rows.map(row=>row.cumulativeCost));
+  assert.deepEqual(option.series[1].data,rows.map(row=>row.cumulativePrize));
+ }else{
+  assert.deepEqual(option.series[0].data.map(item=>item.value),rows.map(row=>row.net));
+  assert.equal(option.series[0].data[0].itemStyle.color,rows[0].net>=0?'#128a80':'#d35d63');
+ }
+ assert.ok(option.tooltip.formatter([{dataIndex:0}]).includes(rows[0].issue));
 }
+assert.deepEqual(prizeOptions(recent.counts).series[0].data,recent.counts.slice(1));
+assert.equal(chartRows(recent.records.slice(0,1),'recent').length,1);
+assert.throws(()=>chartRows([],'recent'));
+assert.ok(backtestOptions([{...recent.records[0],unknown:1}]).tooltip.formatter([{dataIndex:0}]).includes('下限'));
 const next=predict(baselineDraws,base);assert.deepEqual(next.pick.red,[13,14,22,24,25,30]);assert.deepEqual(next.pick.blue,[2,4]);
 const missingDraws=structuredClone(baselineDraws);missingDraws.at(-1).first=0;missingDraws.at(-1).second=0;
 const manual={red:missingDraws.at(-1).red,blue:[missingDraws.at(-1).blue]};const missing=runBacktest(missingDraws,{...base,strategy:'manual',manual,blueCount:1,periods:1});assert.equal(missing.counts[1],1);assert.equal(missing.unknown,1);assert.equal(missing.prize,0);
