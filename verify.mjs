@@ -223,3 +223,18 @@ assert.equal(multiExp.stability.longestNoWin,Math.max(...multiExp.stability.samp
 let streak=0,maxStreak=0;for(const row of multiBacktest.records){streak=row.tickets.some(ticket=>ticket.counts.slice(1).some(Boolean))?0:streak+1;maxStreak=Math.max(maxStreak,streak);}
 assert.equal(multiBacktest.longestNoWin,maxStreak);
 console.log('PASS: strict overlap limits, balanced blues, impossible configuration rejection and 100-seed stability metrics.');
+
+const {analyzeNumbers,frequencyOption,numberTrendOption}=await import('./src/number-analysis.mjs');
+const sampleDraws=Array.from({length:4},(_,i)=>({issue:String(i+1),date:`2026-01-0${i+1}`,red:Array.from({length:6},(_,n)=>n+i+1),blue:[1,2,1,3][i]}));
+const redStats=analyzeNumbers(sampleDraws,2),blueStats=analyzeNumbers(sampleDraws,2,'blue');
+assert.equal(redStats.rows.reduce((s,r)=>s+r.count,0),12);assert.equal(blueStats.rows.reduce((s,r)=>s+r.count,0),2);
+assert.equal(redStats.rows[0].count,0);assert.equal(redStats.rows[0].omission,3);assert.equal(redStats.rows[0].maxOmission,3);
+assert.equal(redStats.rows[0].lastIssue,'1');assert.equal(redStats.rows[0].lowerBound,false);
+assert.equal(redStats.rows[32].omission,4);assert.equal(redStats.rows[32].lowerBound,true);assert.equal(redStats.rows[32].maxLowerBound,true);
+assert.equal(blueStats.rows[2].omission,0);assert.deepEqual(blueStats.rows[0].trend.map(p=>p.cumulative),[1,1]);
+assert.deepEqual(blueStats.rows[0].trend.map(p=>p.omission),[0,1]);assert.deepEqual(blueStats.rows[0].trend.map(p=>p.rolling),[1,1]);
+assert.deepEqual(analyzeNumbers(sampleDraws,4).rows.map(r=>r.omission),redStats.rows.map(r=>r.omission));
+assert.equal(redStats.hot[0].number,4);assert.equal(redStats.cold[0].number,1);
+assert.equal(frequencyOption(redStats).series[0].data.length,33);assert.deepEqual(numberTrendOption(blueStats.rows[0],'cumulative').series[0].data,[1,1]);
+for(const count of [0,1.5,5,NaN])assert.throws(()=>analyzeNumbers(sampleDraws,count));
+console.log('PASS: scoped number counts, cross-window omissions, unavailable-history lower bounds, ties and trend series.');
