@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node verify.mjs",
+    "test": "node verify.mjs && node verify-trend.mjs",
     "research": "node scripts/run-research.mjs",
     "multibet": "node scripts/run-multibet.mjs"
   },
@@ -21,3 +21,4 @@
     "vite": "8.3.1"
   }
 }
+
