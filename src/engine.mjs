@@ -1,6 +1,6 @@
 export const TOTAL=17721088;
 export const GRADES=['未中奖','一等奖','二等奖','三等奖','四等奖','五等奖','六等奖','福运奖'];
-export const STRATEGIES={hot100:'近100期热号',blend:'长短期加权热号',hot30:'近30期热号',cold100:'近100期冷号',overdue:'遗漏最长',hotcold:'冷热交替',oddeven:'红球奇偶交替',zones:'红球三区轮选',random:'随机选号',manual:'手动固定号码'};
+export const STRATEGIES={hot100:'近100期热号',blend:'长短期加权热号',hot30:'近30期热号',hot20:'近20期热号',cold100:'近100期冷号',overdue:'遗漏最长',hotcold:'冷热交替',oddeven:'红球奇偶交替',zones:'红球三区轮选',random:'随机选号',manual:'手动固定号码'};
 STRATEGIES.combined='多选组合';
 export const COMBINABLE = Object.entries(STRATEGIES).filter(([key]) => !['manual','combined'].includes(key));
 export function choose(n,k){if(k<0||n<k||n<0)return 0;k=Math.min(k,n-k);let a=1;for(let i=1;i<=k;i++)a=a*(n-i+1)/i;return Math.round(a);}
@@ -44,7 +44,7 @@ function rankFromHistory(data,t,c){
  }
  if(c.strategy==='random'){const random=rng((c.seed^Math.imul(t+1,2654435761))>>>0);return{red:shuffled(33,random),blue:shuffled(16,random)};}
  const out={};for(const [color,n] of [['red',33],['blue',16]]){
-  const a=new Array(n).fill(0);let start=Math.max(0,t-100);
+  const a=new Array(n).fill(0);let start=Math.max(0,t-(c.strategy==='hot20'?20:100));
   if(c.strategy==='overdue'){a.fill(t);for(let i=t-1;i>=0;i--){for(const v of color==='red'?data[i].red:[data[i].blue])if(a[v-1]===t)a[v-1]=t-1-i;} }
   else for(let i=start;i<t;i++){let weight=c.strategy==='blend'?7+(i>=t-30?10:0):c.strategy==='hot30'?(i>=t-30?1:0):1;for(const v of color==='red'?data[i].red:[data[i].blue])a[v-1]+=weight;}
   const hot=Array.from({length:n},(_,i)=>i+1).sort((x,y)=>a[y-1]-a[x-1]||x-y);
