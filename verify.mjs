@@ -8,6 +8,21 @@ const baselineEnd=draws.findIndex(r=>r.issue==='26113')+1;
 assert.equal(baselineEnd,3510);
 const baselineDraws=draws.slice(0,baselineEnd);
 const base={strategy:'hot100',type:'pool',redCount:6,blueCount:2,seed:20260930,periods:3010,end:baselineEnd};
+// Only the 20 completed draws before the target contribute, including both endpoints.
+const hot20History=Array.from({length:101},(_,i)=>({red:i<80?[1,2,3,4,5,6]:i<90?[7,8,9,10,11,12]:[13,14,15,16,17,18],blue:i<80?1:i<90?5:6}));
+const hot20Config={...base,strategy:'hot20',redCount:10,blueCount:3};
+const hot20Pick=selectNumbers(hot20History,100,hot20Config);
+assert.deepEqual(hot20Pick.red,[7,8,9,10,11,12,13,14,15,16]);
+assert.deepEqual(hot20Pick.blue,[1,5,6]);
+const hot20Changed=structuredClone(hot20History);
+hot20Changed[79]={red:[27,28,29,30,31,32],blue:16};
+hot20Changed[100]={red:[1,2,3,4,5,6],blue:1};
+assert.deepEqual(selectNumbers(hot20Changed,100,hot20Config),hot20Pick);
+assert.deepEqual(predict(hot20History.slice(0,100),hot20Config).pick,hot20Pick);
+const hot20Backtest=runBacktest(draws,{...hot20Config,periods:20});
+assert.equal(hot20Backtest.tickets,630);
+assert.equal(hot20Backtest.records.length,20);
+assert.equal(hot20Backtest.counts.reduce((a,b)=>a+b,0),630*20);
 for(const [redCount,blueCount,hot,blend] of [[6,2,3450,3325],[7,1,18365,12980],[7,2,29690,23680],[6,16,23475,23760]]){
  for(const [strategy,total] of [['hot100',hot],['blend',blend]]){
   const r=runBacktest(draws,{...base,redCount,blueCount,strategy});assert.equal(r.prize,total);assert.equal(r.cost,choose(redCount,6)*blueCount*2*3010);assert.equal(r.unknown,0);assert.equal(r.counts.reduce((a,b)=>a+b,0),r.tickets*3010);

@@ -23,7 +23,7 @@ const chartMode = ref('cumulative');
 const chartIndex = ref(0);
 let worker;
 
-const help = {hot100: '按当时之前100期的出现次数排序；相同数据和设置会得到相同结果。', blend: '70%近100期频率 + 30%近30期频率。', hot30: '按当时之前30期的出现次数排序。', cold100: '选择当时之前100期出现次数较少的号码。', overdue: '选择截至当时连续未出现期数最长的号码。', hotcold: '按此前100期出现次数排序，冷热两端交替取号。', oddeven: '红球按奇、偶交替取号。', zones: '红球按1—11、12—22、23—33三区轮流取号。', random: '每一期都随机生成号码；可固定随机编号复现结果。', manual: '固定这组号码回看历史，属于事后分析。'};
+const help = {hot100: '按当时之前100期的出现次数排序；相同数据和设置会得到相同结果。', blend: '70%近100期频率 + 30%近30期频率。', hot30: '按当时之前30期的出现次数排序。', hot20: '红球、蓝球均按当时之前20期的出现次数排序；次数相同按号码从小到大选择。', cold100: '选择当时之前100期出现次数较少的号码。', overdue: '选择截至当时连续未出现期数最长的号码。', hotcold: '按此前100期出现次数排序，冷热两端交替取号。', oddeven: '红球按奇、偶交替取号。', zones: '红球按1—11、12—22、23—33三区轮流取号。', random: '每一期都随机生成号码；可固定随机编号复现结果。', manual: '固定这组号码回看历史，属于事后分析。'};
 const maxPeriods = computed(() => config.end - (config.strategy === 'manual' ? 0 : 500));
 const stake = computed(() => {try {return betCount(validateConfig({...config, strategy: config.strategy === 'manual' ? 'hot100' : config.strategy}, props.draws.length, true)) * 2;} catch {return null;}});
 const betDescription = computed(() => {try {const c = validateConfig({...config, strategy: config.strategy === 'manual' ? 'hot100' : config.strategy}, props.draws.length, true); return `${betLabel(c)} · ${fmt(betCount(c))}注 × ¥2`;} catch {return '请检查号码个数';}});
